@@ -60,9 +60,9 @@ std::array<uint16_t, 6> g_u16_SoundSample = {0, 0, 0, 0, 0, 0};
 // Time in seconds to obtain the initial sound samples.
 volatile uint8_t g_u8_InitialReadingsTimer = 6U;  // initial sound samples
 // Value in secons of Light On period.
-volatile uint8_t g_u8_LightOnTimer = 0; 
+volatile uint8_t g_u8_LightOnTimer = 0;
 // Iterators
-volatile uint32_t g_u32_i;  
+volatile uint32_t g_u32_i;
 volatile uint32_t g_u32_j;
 
 /* Main Function */
@@ -84,20 +84,20 @@ extern "C"
     void TA0_0_IRQHandler()
     {
         // Clear interrupt flag
-        TIMER_A0->CCTL[0] &= ~TIMER_A_CTL_IFG;  
+        TIMER_A0->CCTL[0] &= ~TIMER_A_CTL_IFG;
         // If LightOn timer is active
         if (g_u8_LightOnTimer)
         {
             g_u8_LightOnTimer--;    // Decrease timer count
-            // If LightOn timer finished 
+            // If LightOn timer finished
             if (g_u8_LightOnTimer == 0)
             {
                 TurnOff();
                 CheckAmbientLight(); // Read ambient ligth after turned Off
             }
-        } else 
+        } else
         {
-            CheckAmbientLight(); // In case the timmer and lights are off, only reads the Ambient Light   
+            CheckAmbientLight(); // In case the timmer and lights are off, only reads the Ambient Light
         }
 
         ADC14->CTL0 |= ADC14_CTL0_SC; // Start sampling
@@ -108,8 +108,8 @@ extern "C"
     {
         //__disable_irq();
         // Clear interrupt flag
-        ADC14->CLRIFGR0 = ADC14_CLRIFGR0_CLRIFG0; 
-        // Shift sound sample array left  
+        ADC14->CLRIFGR0 = ADC14_CLRIFGR0_CLRIFG0;
+        // Shift sound sample array left
         std::rotate(g_u16_SoundSample.begin(), g_u16_SoundSample.begin() + 1, g_u16_SoundSample.end());
         // Get last 5s sound sample average
         g_u16_SoundAvg = std::accumulate(g_u16_SoundSample.begin(), g_u16_SoundSample.end() - 1, 0) / (g_u16_SoundSample.size() - 1);
@@ -124,10 +124,11 @@ extern "C"
         }
         else
         {
-            // Turn On and restart timer if 
-            if (!LightStatus && // Light is turned Off
-                g_f_AmbientLight < g_u8_NightLight && // Ambient light is below night threshold
-                g_u16_SoundSample.back() > g_u16_SoundAvg * 20) // Sound condition is true   
+            // Turn On and restart timer if
+            // Light is turned Off
+            // Ambient light is below night threshold
+            // Sound condition is true
+            if (!LightStatus() && g_f_AmbientLight < g_u8_NightLight && g_u16_SoundSample.back() > g_u16_SoundAvg * 20)
             {
                 TurnOn();
             }
@@ -149,7 +150,7 @@ extern "C"
         {
             TurnOff();
         }
-        for(g_u32_i = 0; g_u32_i < 75000; g_u32_i++); // Wait to debounce
+        for(g_u32_i = 0; g_u32_i < 75000; g_u32_i++); // Wait to debounce ~25ms
         __enable_irq();
     }
 }
@@ -162,10 +163,10 @@ extern "C"
 void Setup()
 {
     // Stop WatchDog Timer
-    WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     
+    WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;
 
     // Lights output (P2) setup
-    P2->DIR |= 0xFF;                                // Set all P2 Pins as outputs 
+    P2->DIR |= 0xFF;                                // Set all P2 Pins as outputs
     P2->OUT = 0U;                                   // Set all P2 Pins LOW
 
     // P3 power selection setup
@@ -207,7 +208,7 @@ void Setup()
                     TIMER_A_CTL_ID_3;           // Predivider by 8
     TIMER_A0->EX0 = TIMER_A_EX0_TAIDEX_5;       // Devider by 6 => T = 1/3MHz * 6 * 8 = 16us
     NVIC_SetPriority(TA0_0_IRQn, 2);
-    
+
     // P4 Analog input setup
     // Set P4.3 for Analog input, disabling the I/O circuit.
     P4->SEL0 = BIT3;
@@ -274,7 +275,7 @@ void InitialBlink()
     for(g_u32_i = 0; g_u32_i < 6; g_u32_i++)
     {
         P2->OUT ^= g_u8_LedBit;
-        for(g_u32_j = 0; g_u32_j < 120000; g_u32_j++); // blink of period of ~0.08s 
+        for(g_u32_j = 0; g_u32_j < 120000; g_u32_j++); // blink of period of ~0.08s
     }
     // Check if AmbientLight is below night threshold.
     if (g_f_AmbientLight < g_u8_NightLight)
@@ -335,7 +336,3 @@ bool LightStatus()
 {
     return P2->OUT & g_u8_LedBit;
 }
-
-
-
-
