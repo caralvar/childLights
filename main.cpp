@@ -56,7 +56,7 @@ std::array<uint16_t, 6> g_u16_SoundSample = {0, 0, 0, 0, 0, 0};
 
 /* Variables used as timers and iterators */
 // Time in seconds to obtain the initial sound samples.
-volatile uint8_t g_u8_InitialReadingsTimer = 6U;  initial sound samples
+volatile uint8_t g_u8_InitialReadingsTimer = 6U;  // initial sound samples
 // Value in secons of Light On period.
 volatile uint8_t g_u8_LightOnTimer = 0; 
 // Iterators
