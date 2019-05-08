@@ -18,6 +18,8 @@
 *   http://dev.ti.com/tirex/explore/node?node=AO-z6hVxac098vpkiW.QHw__z-lQYNj__LATEST
 *
 *   http://dev.ti.com/tirex/explore/node?node=AFhyKnhVA-6bJAtmttHxFA__z-lQYNj__LATEST
+*
+*   ADC14 example seen in class
 */
 
 // Libraries for data manipulation
@@ -93,6 +95,9 @@ extern "C"
                 TurnOff();
                 CheckAmbientLight(); // Read ambient ligth after turned Off
             }
+        } else 
+        {
+            CheckAmbientLight(); // In case the timmer and lights are off, only reads the Ambient Light   
         }
 
         ADC14->CTL0 |= ADC14_CTL0_SC; // Start sampling
@@ -254,7 +259,7 @@ void CheckAmbientLight()
     for (g_u32_i = 0; g_u32_i < 5; g_u32_i++)
     {
         g_f_AmbientLight += OPT3001_getLux();
-        for(g_u32_j = 0; g_u32_j < 1000; g_u32_j++);
+        for(g_u32_j = 0; g_u32_j < 30000; g_u32_j++); // ~10ms @ 3MHz
     }
     g_f_AmbientLight /= g_u32_i;
 }
@@ -269,7 +274,7 @@ void InitialBlink()
     for(g_u32_i = 0; g_u32_i < 6; g_u32_i++)
     {
         P2->OUT ^= g_u8_LedBit;
-        for(g_u32_j = 0; g_u32_j < 120000; g_u32_j++);
+        for(g_u32_j = 0; g_u32_j < 120000; g_u32_j++); // blink of period of ~0.08s 
     }
     // Check if AmbientLight is below night threshold.
     if (g_f_AmbientLight < g_u8_NightLight)
@@ -324,7 +329,7 @@ void TurnOn()
 // **********************************
 // Sets the LightOnTimer to g_u8_WaitingTime and turns off the light
 // @input - none
-// @output - Light state, On = True, Off = False
+// @output - Bool: Light state, On = True, Off = False
 // **********************************
 bool LightStatus()
 {
