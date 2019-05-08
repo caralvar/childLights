@@ -1,12 +1,34 @@
+/*
+* School of Electrical Engineering, Universidad de Costa Rica.
+*   Introduction Lab to Embedded Systems. Prof. Esteban Ortiz
+*
+* Child Lights:
+*      Application for a voiced controlled light switch, that will work as
+*       a solution for parents with babys waking up in the middle of the night.
+*
+*       The system uses the MSP432P401R microcontroller from TI,
+*       a light sensor,
+*       a microphone,
+*       and a button in order to controll the lights.
+*
+*      Authors: Carlos Alvarado (caramd9506)
+*               Daniel Díaz     (ddiazorz)
+*       Based on the examples available in TI CLOUD:
+*
+*   http://dev.ti.com/tirex/explore/node?node=AO-z6hVxac098vpkiW.QHw__z-lQYNj__LATEST
+*
+*   http://dev.ti.com/tirex/explore/node?node=AFhyKnhVA-6bJAtmttHxFA__z-lQYNj__LATEST
+*/
+
+// Libraries for data manipulation
 #include <array>
 #include <algorithm>
 #include <numeric>
+// Light sensor libraries.
 #include <HAL_I2C.hpp>
 #include <HAL_OPT3001.hpp>
+// Microcontroller driver.
 #include <ti/devices/msp432p4xx/driverlib/driverlib.h>
-
-//int condEncendid = 0;
-//int botonEstripado = 0;
 
 /* Function prototypes */
 void Setup();
@@ -18,29 +40,30 @@ void TurnOff();
 bool LightStatus();
 
 /* Constants */
-const uint16_t g_u8_OneSecond = 0xF424; // T = 16us
-const uint8_t g_u8_HighPowerLamp = 64U;
-const uint8_t g_u8_MidPowerLamp = 128U;
-const uint8_t g_u8_WaitingTime = 31U;
-const uint8_t g_u8_NightLight = 20U;
+const uint16_t g_u8_OneSecond = 0xF424; // ~1s with a (3MHz / 48) clock.
+const uint8_t g_u8_HighPowerLamp = 64U; // High power lamp identifier.
+const uint8_t g_u8_MidPowerLamp = 128U; // Mid power identifier.
+const uint8_t g_u8_WaitingTime = 31U;   // Waiting time 30s.
+const uint8_t g_u8_NightLight = 20U;    // Night light threshold.
 
 /* Global Variables */
-float g_f_AmbientLight = 0.0;
-uint8_t g_u8_LedBit;
-int16_t g_u16_AdcResult = 0;
-uint16_t g_u16_SoundAvg = 0;
+float g_f_AmbientLight = 0.0;   // Ambient light
+uint8_t g_u8_LedBit;            // Bit value to toglle to switch the lights.
+int16_t g_u16_AdcResult = 0;    // Result of the ADC conversion
+uint16_t g_u16_SoundAvg = 0;    // Last 5s sound average
+// Array with the last 6 secondos sound samples
 std::array<uint16_t, 6> g_u16_SoundSample = {0, 0, 0, 0, 0, 0};
 
 /* Variables used as timers and iterators */
-volatile uint8_t g_u8_InitialReadingsTimer = 6U;
-volatile uint8_t g_u8_LightOnTimer = 0;
-volatile uint32_t g_u32_i;
+// Time in seconds to obtain the initial sound samples.
+volatile uint8_t g_u8_InitialReadingsTimer = 6U;  initial sound samples
+// Value in secons of Light On period.
+volatile uint8_t g_u8_LightOnTimer = 0; 
+// Iterators
+volatile uint32_t g_u32_i;  
 volatile uint32_t g_u32_j;
 
-/**
- * main.c
- */
-
+/* Main Function */
 void main(void)
 {
     Setup();
@@ -55,54 +78,64 @@ void main(void)
 /* Interrupt Functions */
 extern "C"
 {
-    /* Timer A */
+    /* Timer A Interrupt Handler */
     void TA0_0_IRQHandler()
     {
-        TIMER_A0->CCTL[0] &= ~TIMER_A_CTL_IFG;          // Clear interrupt flag
+        // Clear interrupt flag
+        TIMER_A0->CCTL[0] &= ~TIMER_A_CTL_IFG;  
+        // If LightOn timer is active
         if (g_u8_LightOnTimer)
         {
-            g_u8_LightOnTimer--;
+            g_u8_LightOnTimer--;    // Decrease timer count
+            // If LightOn timer finished 
             if (g_u8_LightOnTimer == 0)
             {
-//                condEncendid--;
                 TurnOff();
+                CheckAmbientLight(); // Read ambient ligth after turned Off
             }
         }
 
-        ADC14->CTL0 |= ADC14_CTL0_SC;                   // Start sampling
+        ADC14->CTL0 |= ADC14_CTL0_SC; // Start sampling
     }
 
-    /* ADC14 */
+    /* ADC14 IRQ Handler*/
     void ADC14_IRQHandler(void)
     {
-        __disable_irq();
-        ADC14->CLRIFGR0 = ADC14_CLRIFGR0_CLRIFG0;
+        //__disable_irq();
+        // Clear interrupt flag
+        ADC14->CLRIFGR0 = ADC14_CLRIFGR0_CLRIFG0; 
+        // Shift sound sample array left  
         std::rotate(g_u16_SoundSample.begin(), g_u16_SoundSample.begin() + 1, g_u16_SoundSample.end());
+        // Get last 5s sound sample average
         g_u16_SoundAvg = std::accumulate(g_u16_SoundSample.begin(), g_u16_SoundSample.end() - 1, 0) / (g_u16_SoundSample.size() - 1);
+        // Read new sound sample
         g_u16_AdcResult = ADC14->MEM[0];
+        // Push the absolute value + 10 of the new sound sample.
         g_u16_SoundSample.back() = g_u16_AdcResult < 0 ? (g_u16_AdcResult * -1) + 10 : g_u16_AdcResult + 10;
-
+        // Check if the initial readdins are complete
         if (g_u8_InitialReadingsTimer)
         {
             g_u8_InitialReadingsTimer--;
         }
         else
         {
-            if (g_u16_SoundSample.back() > g_u16_SoundAvg * 20)
+            // Turn On and restart timer if 
+            if (!LightStatus && // Light is turned Off
+                g_f_AmbientLight < g_u8_NightLight && // Ambient light is below night threshold
+                g_u16_SoundSample.back() > g_u16_SoundAvg * 20) // Sound condition is true   
             {
-//                condEncendid++;
                 TurnOn();
             }
         }
-        __enable_irq();
+        //__enable_irq();
     }
 
-    /* P5 */
+    /*  P4 Button IRQ Handler */
     void PORT4_IRQHandler()
     {
         __disable_irq();
-//        botonEstripado++;
         P4->IFG &= ~(uint8_t) BIT1; // Clear interrupt flag
+        // Checks light status and toggles it
         if (!LightStatus())
         {
             TurnOn();
@@ -111,19 +144,26 @@ extern "C"
         {
             TurnOff();
         }
-        for(g_u32_i = 0; g_u32_i < 75000; g_u32_i++);
+        for(g_u32_i = 0; g_u32_i < 75000; g_u32_i++); // Wait to debounce
         __enable_irq();
     }
 }
 
-/* Peripherals and interruptions Setup */
+// **********************************
+// Setup function for the application
+// @input - none
+// @output - none
+// **********************************
 void Setup()
 {
-    WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // Stop WatchDog Timer
+    // Stop WatchDog Timer
+    WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     
 
-    P2->DIR |= 0xFF;                                // Set all P2 Pins as outputs (Only P1.0 will be used)
+    // Lights output (P2) setup
+    P2->DIR |= 0xFF;                                // Set all P2 Pins as outputs 
     P2->OUT = 0U;                                   // Set all P2 Pins LOW
 
+    // P3 power selection setup
     P3->DIR |= ~(BIT6 | BIT7);                      // Set P3.5 and P3.7 as inputs, the rest pins as outputs
     P3->OUT = 0U;                                   // Set all P1 Pins LOW
 
@@ -134,6 +174,7 @@ void Setup()
     *    0    1    MID    G(P2.1)
     *    1    0    HIGH   B(P2.0)
     */
+
     switch( P3->IN & (BIT6 | BIT7) )
     {
     case g_u8_HighPowerLamp:
@@ -147,30 +188,28 @@ void Setup()
         g_u8_LedBit = BIT0;
     }
 
-    P4->DIR |= ~(uint8_t) BIT1;                 // Set P5.1 as input, the rest pins as outputs
-
-    P4->REN = BIT1;                             // Enable pull-up resistor (P5.1 output high)
+    // P4 Button setup
+    P4->DIR |= ~(uint8_t) BIT1;                 // Set P4.1 as input
+    P4->REN = BIT1;                             // Enable pull-up resistor (4.1 output high)
     P4->IES &= ~(uint8_t) BIT1;                 // Interrupt on rising flank
-    P4->OUT = 0U;                               // Set all P5 Pins LOW
-
     NVIC_SetPriority(PORT4_IRQn, 1);
 
-    // Set P4.3 for Analog input, disabling the I/O circuit.
-    P4->SEL0 = BIT3;
-    P4->SEL1 = BIT3;
 
-    P4->DIR &= ~(uint8_t) BIT3;                 // Set P4.3 as input
-    P4->OUT = 0;                                // Set all outputs as 0
-
-
+    // Timer A setup
     TIMER_A0->CCR[0] = g_u8_OneSecond;          // Overflow value
     TIMER_A0->CTL = TIMER_A_CTL_MC__UP |        // Upmode
                     TIMER_A_CTL_SSEL__SMCLK |   // Select system Clock
                     TIMER_A_CTL_ID_3;           // Predivider by 8
-    TIMER_A0->EX0 = TIMER_A_EX0_TAIDEX_5;       // Devider by 6  T = 1/3MHz * 6 * 8 = 16us
+    TIMER_A0->EX0 = TIMER_A_EX0_TAIDEX_5;       // Devider by 6 => T = 1/3MHz * 6 * 8 = 16us
     NVIC_SetPriority(TA0_0_IRQn, 2);
-
-
+    
+    // P4 Analog input setup
+    // Set P4.3 for Analog input, disabling the I/O circuit.
+    P4->SEL0 = BIT3;
+    P4->SEL1 = BIT3;
+    P4->DIR &= ~(uint8_t) BIT3;                 // Set P4.3 as input
+    P4->OUT = 0;                                // Set all outputs as 0
+    // ADC14 setup
     ADC14->CTL0 = ADC14_CTL0_PDIV_0 |           // Clock source predivider
                   ADC14_CTL0_SHS_0 |            // Trigger with a rising edge of ADC14SC
                   ADC14_CTL0_DIV_7 |            // ADC clock divider
@@ -180,7 +219,7 @@ void Setup()
                   ADC14_CTL0_SHP;               // SAMPCON is sourced from the sampling timer
 
     ADC14->CTL1 = ADC14_CTL1_DF |
-                  ADC14_CTL1_RES0 |
+                  ADC14_CTL1_RES0 |             // Sets reference level for negative values
                   ADC14_CTL1_RES1;
     // Conversion memory control
     ADC14->MCTL[0] = ADC14_MCTLN_INCH_10 |      // Input channel selection: A10
@@ -190,10 +229,10 @@ void Setup()
     NVIC_SetPriority(ADC14_IRQn, 2);
     // Enable interrupts
 
+    // I2C and light sensor setup
     /* Initialize I2C communication */
     Init_I2C_GPIO();
     I2C_init();
-
     /* Initialize OPT3001 digital ambient light sensor */
     OPT3001_init();
 
@@ -205,7 +244,11 @@ void Setup()
     P10->DIR |= 0xFF; P10->OUT = 0;
 }
 
-/* Function description */
+// **********************************
+// Stores an Ambient Light average in g_f_AmbientLight
+// @input - none
+// @output - none
+// **********************************
 void CheckAmbientLight()
 {
     for (g_u32_i = 0; g_u32_i < 5; g_u32_i++)
@@ -216,7 +259,11 @@ void CheckAmbientLight()
     g_f_AmbientLight /= g_u32_i;
 }
 
-/* Function description */
+// **********************************
+// Does the initial blink routine and sets up the initial state
+// @input - none
+// @output - none
+// **********************************
 void InitialBlink()
 {
     for(g_u32_i = 0; g_u32_i < 6; g_u32_i++)
@@ -224,7 +271,7 @@ void InitialBlink()
         P2->OUT ^= g_u8_LedBit;
         for(g_u32_j = 0; g_u32_j < 120000; g_u32_j++);
     }
-
+    // Check if AmbientLight is below night threshold.
     if (g_f_AmbientLight < g_u8_NightLight)
     {
         TurnOn();
@@ -235,10 +282,14 @@ void InitialBlink()
     }
 }
 
-/* Function description */
+// **********************************
+// Enables interruptions
+// @input - none
+// @output - none
+// **********************************
 void StartInterrupts()
 {
-    P4->IE = BIT1;                              // Enable port 5 interrupt
+    P4->IE = BIT1;                              // Enable port 4 interrupt
     TIMER_A0->CCTL[0] = TIMER_A_CCTLN_CCIE;     // TACCR0 interrupt enabled
     ADC14->IER0 = ADC14_IER0_IE0;               // ADC14 interrupt enabled
 
@@ -248,21 +299,33 @@ void StartInterrupts()
     NVIC_EnableIRQ(ADC14_IRQn);
 }
 
-/* Function description */
+// **********************************
+// Sets the LightOnTimer to 0 and turns off the light
+// @input - none
+// @output - none
+// **********************************
 void TurnOff()
 {
     g_u8_LightOnTimer = 0U;
     P2->OUT &= ~g_u8_LedBit;
 }
 
-/* Function description */
+// **********************************
+// Sets the LightOnTimer to g_u8_WaitingTime and turns off the light
+// @input - none
+// @output - none
+// **********************************
 void TurnOn()
 {
     g_u8_LightOnTimer = g_u8_WaitingTime;
     P2->OUT |= g_u8_LedBit;
 }
 
-/* Function Desciption */
+// **********************************
+// Sets the LightOnTimer to g_u8_WaitingTime and turns off the light
+// @input - none
+// @output - Light state, On = True, Off = False
+// **********************************
 bool LightStatus()
 {
     return P2->OUT & g_u8_LedBit;
